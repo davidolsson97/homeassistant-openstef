@@ -1,0 +1,9 @@
+name: OpenSTEF Prognos
+version: "0.1.0"
+slug: openstef
+description: OpenSTEF-prognoser för Home Assistant Green
+arch:
+  - aarch64
+startup: application
+boot: auto
+init: false
