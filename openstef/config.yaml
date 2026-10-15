@@ -7,3 +7,6 @@ arch:
 startup: application
 boot: auto
 init: false
+map:
+  - type: homeassistant_config
+    read_only: true
