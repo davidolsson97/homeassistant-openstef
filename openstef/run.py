@@ -28,5 +28,31 @@ model = joblib.load(modellfil)
 print("Modellen laddades korrekt!", flush=True)
 print("Modelltyp:", type(model).__name__, flush=True)
 
+import json
+from influxdb import InfluxDBClient
+
+with open("/data/options.json", encoding="utf-8") as f:
+    options = json.load(f)
+
+print("Testar anslutningen till InfluxDB...", flush=True)
+
+client = InfluxDBClient(
+    host=options["influxdb_host"],
+    port=options["influxdb_port"],
+    username=options["influxdb_username"],
+    password=options["influxdb_password"],
+    database=options["influxdb_database"],
+    ssl=options["influxdb_ssl"],
+    timeout=15,
+)
+
+result = client.query(
+    'SELECT LAST("value") FROM "kW" '
+    "WHERE \"entity_id\" = 'lastbalanserare_importerad_effekt'"
+)
+
+print("InfluxDB-anslutningen lyckades!", flush=True)
+print("Mätresultat:", list(result.get_points()), flush=True)
+
 while True:
     time.sleep(60)
