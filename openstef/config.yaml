@@ -1,12 +1,16 @@
+
 name: OpenSTEF Prognos
-version: "0.2.0"
+version: "0.3.0"
 slug: openstef
 description: OpenSTEF-prognoser för Home Assistant Green
+
 arch:
   - aarch64
+
 startup: application
 boot: auto
 init: false
+
 map:
   - type: homeassistant_config
     read_only: true
@@ -17,7 +21,11 @@ options:
   influxdb_database: "homeassistant"
   influxdb_username: "homeassistant"
   influxdb_password: ""
-  influxdb_ssl: true
+  influxdb_ssl: false
+  mqtt_host: "core-mosquitto"
+  mqtt_port: 1883
+  mqtt_username: ""
+  mqtt_password: ""
 
 schema:
   influxdb_host: str
@@ -26,3 +34,7 @@ schema:
   influxdb_username: str
   influxdb_password: password
   influxdb_ssl: bool
+  mqtt_host: str
+  mqtt_port: port
+  mqtt_username: str
+  mqtt_password: password
