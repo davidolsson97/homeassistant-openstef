@@ -11,5 +11,14 @@ except Exception as e:
     print("Fel vid import av OpenSTEF:", e, flush=True)
     raise
 
+from pathlib import Path
+
+modellfil = Path("/homeassistant/openstef/openstef_modell.pkl")
+
+if modellfil.is_file():
+    print("Modellfilen hittades!", flush=True)
+    print("Filstorlek:", modellfil.stat().st_size, "byte", flush=True)
+else:
+    print("Modellfilen hittades INTE:", modellfil, flush=True)
 while True:
     time.sleep(60)
