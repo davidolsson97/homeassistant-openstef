@@ -10,3 +10,19 @@ init: false
 map:
   - type: homeassistant_config
     read_only: true
+
+options:
+  influxdb_host: "a0d7b954-influxdb"
+  influxdb_port: 8086
+  influxdb_database: "homeassistant"
+  influxdb_username: "homeassistant"
+  influxdb_password: ""
+  influxdb_ssl: true
+
+schema:
+  influxdb_host: str
+  influxdb_port: port
+  influxdb_database: str
+  influxdb_username: str
+  influxdb_password: password
+  influxdb_ssl: bool
