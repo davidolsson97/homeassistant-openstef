@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("openstef")
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 MODEL_PATH = Path("/homeassistant/openstef/openstef_modell.pkl")
 DEVELOPMENT_MODEL_PATH = Path("/homeassistant/openstef/openstef_utveckling.pkl")
@@ -186,7 +186,8 @@ def make_forecast(model, history, target):
 
         if pd.isna(value) or not np.isfinite(float(value)):
             raise ValueError(
-                f"Saknat eller ogiltigt värde för {name}"
+                f"Saknat eller ogiltigt värde för {name} vid {timestamp}. "
+                "Prognosen försöks igen när ny historik finns."
             )
 
         features[name] = float(value)
@@ -382,6 +383,8 @@ def calculate_comparison(client):
             WHERE time >= '{start_iso}' AND time < '{end_iso}'
               {version_filter}
         """, "prognos_kw")
+        if series.empty:
+            return series
         return series[series.index == series.index.floor("15min")]
 
     development = forecasts(DEVELOPMENT_MEASUREMENT)
@@ -642,8 +645,8 @@ def main():
     reference_model = joblib.load(MODEL_PATH)
     model = joblib.load(DEVELOPMENT_MODEL_PATH)
     log.info(
-        "Modellen laddad: %s",
-        type(model).__name__,
+        "Utvecklingsmodell laddad: %s; referensmodell laddad: %s",
+        type(model).__name__, type(reference_model).__name__,
     )
 
     last_forecast_target = None
