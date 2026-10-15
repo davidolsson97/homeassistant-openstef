@@ -74,5 +74,20 @@ if not df.empty:
     print("Första tidpunkt:", df["time"].iloc[0], flush=True)
     print("Sista tidpunkt:", df["time"].iloc[-1], flush=True)
 
+if not df.empty:
+    tider = pd.to_datetime(df["time"], utc=True).sort_values()
+
+    print("Första fem tidsstämplarna:", flush=True)
+    for tid in tider.head(5):
+        print(tid, flush=True)
+
+    print("Antal luckor större än 15 minuter:",
+          int((tider.diff() > pd.Timedelta(minutes=15)).sum()),
+          flush=True)
+
+    print("Minuter i första tidsstämpeln:",
+          tider.iloc[0].minute,
+          flush=True)
+
 while True:
     time.sleep(60)
