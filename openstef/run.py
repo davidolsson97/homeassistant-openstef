@@ -89,5 +89,34 @@ if not df.empty:
           tider.iloc[0].minute,
           flush=True)
 
+if not df.empty:
+    historik = df.copy()
+
+    historik["time"] = pd.to_datetime(historik["time"], utc=True)
+    historik = historik.set_index("time").sort_index()
+
+    historik = historik.reindex(
+        pd.date_range(
+            start=historik.index.min(),
+            end=historik.index.max(),
+            freq="15min",
+            tz="UTC"
+        )
+    )
+
+    saknade_fore = int(historik["load"].isna().sum())
+
+    historik["load"] = historik["load"].interpolate(
+        method="time",
+        limit=4,
+        limit_area="inside"
+    )
+
+    saknade_efter = int(historik["load"].isna().sum())
+
+    print("Antal kvartstimmar totalt:", len(historik), flush=True)
+    print("Saknade före interpolering:", saknade_fore, flush=True)
+    print("Saknade efter interpolering:", saknade_efter, flush=True)
+
 while True:
     time.sleep(60)
