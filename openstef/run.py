@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("openstef")
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 
 MODEL_PATH = Path("/homeassistant/openstef/openstef_modell.pkl")
 DEVELOPMENT_MODEL_PATH = Path("/homeassistant/openstef/openstef_utveckling.pkl")
@@ -394,7 +394,17 @@ def calculate_comparison(client):
         development.rename("development"),
         reference.rename("reference"),
     ], axis=1, join="inner").replace([np.inf, -np.inf], np.nan).dropna()
-    paired = paired.loc[(paired.index >= start) & (paired.index <= last_complete)]
+    # Vid första uppstart finns ännu inga gemensamma prognoser.
+    # En tom concat kan få RangeIndex i stället för DatetimeIndex.
+    if paired.empty:
+        paired = pd.DataFrame(
+            columns=["actual", "development", "reference"],
+            index=pd.DatetimeIndex([], tz="UTC", name="time"),
+        )
+    else:
+        paired = paired.loc[
+            (paired.index >= start) & (paired.index <= last_complete)
+        ]
 
     def metrics_for(frame, suffix):
         if frame.empty:
