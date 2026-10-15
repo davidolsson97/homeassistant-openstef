@@ -54,5 +54,25 @@ result = client.query(
 print("InfluxDB-anslutningen lyckades!", flush=True)
 print("Mätresultat:", list(result.get_points()), flush=True)
 
+import pandas as pd
+
+print("Hämtar historiska 15-minutersvärden...", flush=True)
+
+result = client.query("""
+    SELECT MEAN("value") AS "load"
+    FROM "kW"
+    WHERE "entity_id" = 'lastbalanserare_importerad_effekt'
+      AND time > now() - 8d
+    GROUP BY time(15m) fill(none)
+""")
+
+df = pd.DataFrame(list(result.get_points()))
+
+print("Antal 15-minutersvärden:", len(df), flush=True)
+
+if not df.empty:
+    print("Första tidpunkt:", df["time"].iloc[0], flush=True)
+    print("Sista tidpunkt:", df["time"].iloc[-1], flush=True)
+
 while True:
     time.sleep(60)
