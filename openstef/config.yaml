@@ -1,5 +1,5 @@
 name: OpenSTEF Prognos
-version: "0.1.7"
+version: "0.1.8"
 slug: openstef
 description: OpenSTEF-prognoser för Home Assistant Green
 arch:
