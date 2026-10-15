@@ -20,5 +20,13 @@ if modellfil.is_file():
     print("Filstorlek:", modellfil.stat().st_size, "byte", flush=True)
 else:
     print("Modellfilen hittades INTE:", modellfil, flush=True)
+
+import joblib
+
+print("Läser in OpenSTEF-modellen...", flush=True)
+model = joblib.load(modellfil)
+print("Modellen laddades korrekt!", flush=True)
+print("Modelltyp:", type(model).__name__, flush=True)
+
 while True:
     time.sleep(60)
