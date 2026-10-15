@@ -18,9 +18,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("openstef")
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 MODEL_PATH = Path("/homeassistant/openstef/openstef_modell.pkl")
+DEVELOPMENT_MODEL_PATH = Path("/homeassistant/openstef/openstef_utveckling.pkl")
+REFERENCE_MEASUREMENT = "openstef_referens_prognos"
+DEVELOPMENT_MEASUREMENT = "openstef_utveckling_prognos"
+COMPARISON_MEASUREMENT = "openstef_modelljamforelse"
+COMPARISON_TOPIC = "openstef/modelljamforelse"
+DEVELOPMENT_VERSION = "utveckling_2026_10_15"
 OPTIONS_PATH = Path("/data/options.json")
 
 MEASUREMENT = "kW"
@@ -58,6 +64,18 @@ METRIC_SENSORS = {
         "unit": None,
         "icon": "mdi:counter",
     },
+}
+
+
+COMPARISON_SENSORS = {
+    "referens_mae_24h_kw": ("OpenSTEF referens MAE 24h", "openstef_referens_mae_24h", "kW"),
+    "referens_mae_7d_kw": ("OpenSTEF referens MAE 7d", "openstef_referens_mae_7d", "kW"),
+    "utveckling_mae_24h_kw": ("OpenSTEF utveckling MAE 24h", "openstef_utveckling_mae_24h", "kW"),
+    "utveckling_mae_7d_kw": ("OpenSTEF utveckling MAE 7d", "openstef_utveckling_mae_7d", "kW"),
+    "forbattring_24h_procent": ("OpenSTEF förbättring 24h", "openstef_forbattring_24h", "%"),
+    "forbattring_7d_procent": ("OpenSTEF förbättring 7d", "openstef_forbattring_7d", "%"),
+    "antal_par_24h": ("OpenSTEF jämförbara kvartstimmar 24h", "openstef_jamforbara_kvart_24h", None),
+    "antal_par_7d": ("OpenSTEF jämförbara kvartstimmar 7d", "openstef_jamforbara_kvart_7d", None),
 }
 
 
@@ -312,6 +330,111 @@ def save_forecast(client, forecast_kw, target):
     log.info("Prognos sparad i InfluxDB")
 
 
+def save_model_forecast(client, measurement, forecast_kw, target):
+    point = {
+        "measurement": measurement,
+        "time": target.isoformat(),
+        "tags": {"utvecklingsversion": DEVELOPMENT_VERSION} if measurement == DEVELOPMENT_MEASUREMENT else {},
+        "fields": {"prognos_kw": float(forecast_kw)},
+    }
+    if not client.write_points([point]):
+        raise RuntimeError("Kunde inte spara referensprognosen")
+
+
+def publish_comparison(client, metrics):
+    for key, (name, unique_id, unit) in COMPARISON_SENSORS.items():
+        discovery = {
+            "name": name,
+            "unique_id": unique_id,
+            "state_topic": COMPARISON_TOPIC,
+            "value_template": "{{ value_json." + key + " }}",
+            "icon": "mdi:chart-line",
+        }
+        if unit is not None:
+            discovery["unit_of_measurement"] = unit
+            discovery["state_class"] = "measurement"
+        mqtt_publish(client, "homeassistant/sensor/" + unique_id + "/config", discovery)
+    mqtt_publish(client, COMPARISON_TOPIC, metrics)
+
+
+def calculate_comparison(client):
+    now = pd.Timestamp.now(tz="UTC")
+    last_complete = now.floor("15min") - pd.Timedelta(minutes=15)
+    start = last_complete - pd.Timedelta(days=7) + pd.Timedelta(minutes=15)
+    end = last_complete + pd.Timedelta(minutes=15)
+    start_iso = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso = end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    actual = query_series(client, f"""
+        SELECT MEAN("value") AS "actual_kw" FROM "{MEASUREMENT}"
+        WHERE "entity_id" = '{ENTITY_ID}'
+          AND time >= '{start_iso}' AND time < '{end_iso}'
+        GROUP BY time(15m) fill(none)
+    """, "actual_kw")
+
+    def forecasts(measurement):
+        version_filter = (
+            f"AND \"utvecklingsversion\" = '{DEVELOPMENT_VERSION}'"
+            if measurement == DEVELOPMENT_MEASUREMENT else ""
+        )
+        series = query_series(client, f"""
+            SELECT "prognos_kw" FROM "{measurement}"
+            WHERE time >= '{start_iso}' AND time < '{end_iso}'
+              {version_filter}
+        """, "prognos_kw")
+        return series[series.index == series.index.floor("15min")]
+
+    development = forecasts(DEVELOPMENT_MEASUREMENT)
+    reference = forecasts(REFERENCE_MEASUREMENT)
+    paired = pd.concat([
+        actual.rename("actual"),
+        development.rename("development"),
+        reference.rename("reference"),
+    ], axis=1, join="inner").replace([np.inf, -np.inf], np.nan).dropna()
+    paired = paired.loc[(paired.index >= start) & (paired.index <= last_complete)]
+
+    def metrics_for(frame, suffix):
+        if frame.empty:
+            return {
+                f"referens_mae_{suffix}_kw": None,
+                f"utveckling_mae_{suffix}_kw": None,
+                f"forbattring_{suffix}_procent": None,
+                f"antal_par_{suffix}": 0,
+            }
+        ref_mae = float((frame["actual"] - frame["reference"]).abs().mean())
+        dev_mae = float((frame["actual"] - frame["development"]).abs().mean())
+        improvement = (ref_mae - dev_mae) / ref_mae * 100 if ref_mae > 0 else None
+        return {
+            f"referens_mae_{suffix}_kw": round(ref_mae, 3),
+            f"utveckling_mae_{suffix}_kw": round(dev_mae, 3),
+            f"forbattring_{suffix}_procent": round(improvement, 2) if improvement is not None else None,
+            f"antal_par_{suffix}": int(len(frame)),
+        }
+
+    start_24h = last_complete - pd.Timedelta(hours=24) + pd.Timedelta(minutes=15)
+    output = metrics_for(paired.loc[paired.index >= start_24h], "24h")
+    output.update(metrics_for(paired, "7d"))
+    output["uppdaterad"] = now.isoformat()
+    output["utvecklingsversion"] = DEVELOPMENT_VERSION
+    return output
+
+
+def save_comparison(client, metrics):
+    fields = {
+        key: float(value) if isinstance(value, float) else int(value)
+        for key, value in metrics.items()
+        if key in COMPARISON_SENSORS and value is not None
+    }
+    point = {
+        "measurement": COMPARISON_MEASUREMENT,
+        "tags": {"utvecklingsversion": DEVELOPMENT_VERSION},
+        "time": metrics["uppdaterad"],
+        "fields": fields,
+    }
+    if not client.write_points([point]):
+        raise RuntimeError("Kunde inte spara modelljämförelsen")
+
+
 def query_series(client, query, column):
     result = client.query(query)
     rows = list(result.get_points())
@@ -511,7 +634,13 @@ def main():
             f"Modellfil saknas: {MODEL_PATH}"
         )
 
-    model = joblib.load(MODEL_PATH)
+    if not DEVELOPMENT_MODEL_PATH.is_file():
+        raise FileNotFoundError(
+            f"Utvecklingsmodell saknas: {DEVELOPMENT_MODEL_PATH}"
+        )
+
+    reference_model = joblib.load(MODEL_PATH)
+    model = joblib.load(DEVELOPMENT_MODEL_PATH)
     log.info(
         "Modellen laddad: %s",
         type(model).__name__,
@@ -547,6 +676,10 @@ def main():
                             model, history, target
                         )
 
+                        reference_kw = make_forecast(
+                            reference_model, history, target
+                        )
+
                         log.info(
                             "Prognos för %s: %.3f kW",
                             target.isoformat(),
@@ -554,6 +687,9 @@ def main():
                         )
 
                         # Spara först, publicera sedan.
+                        # Spara båda innan vi betraktar prognoskörningen som klar.
+                        save_model_forecast(influx, REFERENCE_MEASUREMENT, reference_kw, target)
+                        save_model_forecast(influx, DEVELOPMENT_MEASUREMENT, forecast_kw, target)
                         save_forecast(
                             influx, forecast_kw, target
                         )
@@ -582,6 +718,15 @@ def main():
                         save_metrics(influx, metrics)
                         publish_metrics(
                             mqtt_client, metrics
+                        )
+                        comparison = calculate_comparison(influx)
+                        save_comparison(influx, comparison)
+                        publish_comparison(mqtt_client, comparison)
+                        log.info(
+                            "Modelljämförelse: 24h=%s%%, 7d=%s%%, par 24h=%s",
+                            comparison["forbattring_24h_procent"],
+                            comparison["forbattring_7d_procent"],
+                            comparison["antal_par_24h"],
                         )
 
                         last_metrics_target = target
