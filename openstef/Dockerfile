@@ -5,4 +5,6 @@ RUN pip install --no-cache-dir "openstef==4.4.8" influxdb paho-mqtt joblib panda
 
 WORKDIR /app
 
+COPY run.py /app/run.py
+
 CMD ["python", "-u", "/app/run.py"]
